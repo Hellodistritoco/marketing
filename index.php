@@ -1,255 +1,4 @@
-<div class="template-actions">
-                            <button class="btn-small btn-edit" onclick="editTemplate(${template.id})">Editar</button>
-                            <button class="btn-small btn-delete" onclick="deleteTemplate(${template.id})">Eliminar</button>
-                        </div>
-                    `;
-                    templateList.appendChild(templateCard);
-                });
-                
-                categoryDiv.appendChild(templateList);
-                templatesContainer.appendChild(categoryDiv);
-            });
-        }
-
-        function openTemplateModal() {
-            document.getElementById('templateModal').style.display = 'block';
-        }
-
-        function closeTemplateModal() {
-            closeModal('templateModal');
-        }
-
-        async function handleTemplateSubmit(e) {
-            e.preventDefault();
-            setButtonLoading('templateSubmitBtn', true);
-            
-            const formData = new FormData(e.target);
-            const data = {
-                title: formData.get('title'),
-                category: formData.get('category'),
-                priority: formData.get('priority'),
-                description: formData.get('description')
-            };
-
-            try {
-                const url = editingTemplateId ? `task_templates.php?id=${editingTemplateId}` : 'task_templates.php';
-                const method = editingTemplateId ? 'PUT' : 'POST';
-
-                const response = await fetch(url, {
-                    method: method,
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(data)
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    showMessage('templateMessage', result.message);
-                    await loadTemplates();
-                    setTimeout(() => closeTemplateModal(), 1500);
-                } else {
-                    showMessage('templateMessage', result.message, true);
-                }
-            } catch (error) {
-                showMessage('templateMessage', 'Error de conexión', true);
-            } finally {
-                setButtonLoading('templateSubmitBtn', false);
-            }
-        }
-
-        async function editTemplate(templateId) {
-            // Buscar la plantilla en todas las categorías
-            let template = null;
-            Object.keys(templates).forEach(category => {
-                const found = templates[category].find(t => t.id === templateId);
-                if (found) template = found;
-            });
-            
-            if (!template) return;
-
-            editingTemplateId = templateId;
-            document.getElementById('templateModalTitle').textContent = 'Editar Plantilla';
-            document.getElementById('templateTitle').value = template.title;
-            document.getElementById('templateCategory').value = template.category || '';
-            document.getElementById('templatePriority').value = template.priority;
-            document.getElementById('templateDescription').value = template.description || '';
-            
-            openTemplateModal();
-        }
-
-        async function deleteTemplate(templateId) {
-            if (!confirm('¿Estás seguro de que quieres eliminar esta plantilla?')) return;
-
-            try {
-                const response = await fetch(`task_templates.php?id=${templateId}`, {
-                    method: 'DELETE'
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    await loadTemplates();
-                } else {
-                    alert(result.message);
-                }
-            } catch (error) {
-                alert('Error al eliminar plantilla');
-            }
-        }
-
-        // Funciones para crear tareas desde plantillas
-        function openTaskTemplatesForClient(clientId, clientName) {
-            selectedClientForTasks = clientId;
-            document.getElementById('clientNameForTasks').textContent = clientName;
-            loadTemplatesForSelection();
-            document.getElementById('taskTemplatesModal').style.display = 'block';
-        }
-
-        function closeTaskTemplatesModal() {
-            document.getElementById('taskTemplatesModal').style.display = 'none';
-            selectedClientForTasks = null;
-        }
-
-        async function loadTemplatesForSelection() {
-            try {
-                const response = await fetch('task_templates.php?action=grouped');
-                const result = await response.json();
-
-                if (result.success) {
-                    displayTemplatesForSelection(result.templates);
-                } else {
-                    console.error('Error al cargar plantillas:', result.message);
-                }
-            } catch (error) {
-                console.error('Error al cargar plantillas:', error);
-            }
-        }
-
-        function displayTemplatesForSelection(templatesData) {
-            const container = document.getElementById('templatesCheckboxList');
-            
-            if (Object.keys(templatesData).length === 0) {
-                container.innerHTML = '<div class="loading">No hay plantillas disponibles</div>';
-                return;
-            }
-
-            let html = '<button type="button" class="btn-select-all" onclick="toggleAllTemplates()">Seleccionar Todo</button>';
-            
-            Object.keys(templatesData).forEach(category => {
-                html += `
-                    <div class="template-checkbox-group">
-                        <h4>${category}</h4>
-                `;
-                
-                templatesData[category].forEach(template => {
-                    html += `
-                        <div class="template-checkbox-item">
-                            <input type="checkbox" id="template_${template.id}" value="${template.id}" class="template-checkbox">
-                            <label for="template_${template.id}" class="template-checkbox-label">
-                                ${template.title}
-                                ${template.description ? '<br><small style="color: #666;">' + template.description + '</small>' : ''}
-                            </label>
-                            <span class="template-checkbox-priority priority-${template.priority}">${getPriorityText(template.priority)}</span>
-                        </div>
-                    `;
-                });
-                
-                html += '</div>';
-            });
-            
-            container.innerHTML = html;
-        }
-
-        function toggleAllTemplates() {
-            const checkboxes = document.querySelectorAll('.template-checkbox');
-            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-            
-            checkboxes.forEach(checkbox => {
-                checkbox.checked = !allChecked;
-            });
-            
-            const button = document.querySelector('.btn-select-all');
-            button.textContent = allChecked ? 'Seleccionar Todo' : 'Deseleccionar Todo';
-        }
-
-        async function createTasksFromTemplates() {
-            const selectedTemplates = Array.from(document.querySelectorAll('.template-checkbox:checked'))
-                .map(cb => parseInt(cb.value));
-            
-            if (selectedTemplates.length === 0) {
-                showMessage('taskTemplatesMessage', 'Por favor selecciona al menos una plantilla', true);
-                return;
-            }
-
-            try {
-                const response = await fetch('task_templates.php?action=create_tasks', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        client_id: selectedClientForTasks,
-                        template_ids: selectedTemplates
-                    })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    showMessage('taskTemplatesMessage', `Se crearon ${result.created_tasks.length} tareas correctamente`);
-                    await loadTasks();
-                    updateKanbanBoard();
-                    setTimeout(() => closeTaskTemplatesModal(), 2000);
-                } else {
-                    showMessage('taskTemplatesMessage', result.message, true);
-                }
-            } catch (error) {
-                showMessage('taskTemplatesMessage', 'Error de conexión', true);
-            }
-        }
-
-        // Actualizar función closeModal para incluir las nuevas plantillas
-        function closeModal(modalId) {
-            document.getElementById(modalId).style.display = 'none';
-            // Reset forms
-            if (modalId === 'clientModal') {
-                document.getElementById('clientForm').reset();
-                editingClientId = null;
-                document.getElementById('clientModalTitle').textContent = 'Agregar Cliente';
-            } else if (modalId === 'taskModal') {
-                document.getElementById('taskForm').reset();
-                editingTaskId = null;
-                document.getElementById('taskModalTitle').textContent = 'Agregar Tarea';
-            } else if (modalId === 'noteModal') {
-                document.getElementById('noteForm').reset();
-                editingNoteId = null;
-                document.getElementById('noteModalTitle').textContent = 'Agregar Nota';
-            } else if (modalId === 'templateModal') {
-                document.getElementById('templateForm').reset();
-                editingTemplateId = null;
-                document.getElementById('templateModalTitle').textContent = 'Agregar Plantilla';
-            } else if (modalId === 'taskTemplatesModal') {
-                selectedClientForTasks = null;
-            }
-        }
-
-        // Actualizar setButtonLoading para incluir plantillas
-        function setButtonLoading(buttonId, loading) {
-            const button = document.getElementById(buttonId);
-            button.disabled = loading;
-            if (loading) {
-                button.textContent = 'Cargando...';
-            } else {
-                // Restaurar texto original basado en el ID
-                if (buttonId === 'loginBtn') button.textContent = 'Iniciar Sesión';
-                else if (buttonId === 'clientSubmitBtn') button.textContent = editingClientId ? 'Actualizar Cliente' : 'Guardar Cliente';
-                else if (buttonId === 'taskSubmitBtn') button.textContent = editingTaskId ? 'Actualizar Tarea' : 'Guardar Tarea';
-                else if (buttonId === 'noteSubmitBtn') button.textContent = editingNoteId ? 'Actualizar Nota' : 'Guardar Nota';
-                else if (buttonId === 'templateSubmitBtn') button.textContent = editingTemplateId ? 'Actualizar Plantilla' : 'Guardar Plantilla';
-            }
-        }<?php
+<?php
 require_once 'config.php';
 
 // Verificar si hay sesión activa
@@ -284,34 +33,190 @@ if ($user_logged_in) {
             color: #333;
         }
 
+        /* Login Styles - Basado en CodePen */
+        .login-container {
+            background: #f6f5f7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Montserrat', sans-serif;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .container-login {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 14px 28px rgba(0,0,0,0.25), 0 10px 10px rgba(0,0,0,0.22);
+            position: relative;
+            overflow: hidden;
+            width: 768px;
+            max-width: 100%;
+            min-height: 480px;
+        }
+
+        .form-container {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            transition: all 0.6s ease-in-out;
+        }
+
+        .sign-in-container {
+            left: 0;
+            width: 50%;
+            z-index: 2;
+        }
+
+        .overlay-container {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: 50%;
+            height: 100%;
+            overflow: hidden;
+            transition: transform 0.6s ease-in-out;
+            z-index: 100;
+        }
+
+        .overlay {
+            background: #FF416C;
+            background: -webkit-linear-gradient(to right, #FF4B2B, #FF416C);
+            background: linear-gradient(to right, #FF4B2B, #FF416C);
+            background-repeat: no-repeat;
+            background-size: cover;
+            background-position: 0 0;
+            color: #FFFFFF;
+            position: relative;
+            left: -100%;
+            height: 100%;
+            width: 200%;
+            transform: translateX(0);
+            transition: transform 0.6s ease-in-out;
+        }
+
+        .overlay-panel {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            padding: 0 40px;
+            text-align: center;
+            top: 0;
+            height: 100%;
+            width: 50%;
+            transform: translateX(0);
+            transition: transform 0.6s ease-in-out;
+        }
+
+        .overlay-right {
+            right: 0;
+            transform: translateX(0);
+        }
+
+        .social-container {
+            margin: 20px 0;
+        }
+
+        .social-container a {
+            border: 1px solid #DDDDDD;
+            border-radius: 50%;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 5px;
+            height: 40px;
+            width: 40px;
+            text-decoration: none;
+            color: #333;
+        }
+
+        .login-form {
+            background-color: #FFFFFF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            padding: 0 50px;
+            height: 100%;
+            text-align: center;
+        }
+
+        .login-form h1 {
+            font-weight: bold;
+            margin: 0;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .login-form span {
+            font-size: 12px;
+            margin-bottom: 20px;
+        }
+
+        .login-form input {
+            background-color: #eee;
+            border: none;
+            padding: 12px 15px;
+            margin: 8px 0;
+            width: 100%;
+            outline: none;
+        }
+
+        .login-form button {
+            border-radius: 20px;
+            border: 1px solid #FF4B2B;
+            background-color: #FF4B2B;
+            color: #FFFFFF;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 12px 45px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: transform 80ms ease-in;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+
+        .login-form button:active {
+            transform: scale(0.95);
+        }
+
+        .login-form button:focus {
+            outline: none;
+        }
+
+        .login-form button:disabled {
+            background-color: #ccc;
+            border-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container-login {
+                width: 90%;
+                min-height: 500px;
+            }
+            
+            .sign-in-container {
+                width: 100%;
+            }
+            
+            .overlay-container {
+                display: none;
+            }
+            
+            .login-form {
+                padding: 0 30px;
+            }
+        }
+
         .container {
             max-width: 1400px;
             margin: 0 auto;
             padding: 20px;
-        }
-
-        /* Login Styles */
-        .login-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
-
-        .login-form {
-            background: white;
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            width: 100%;
-            max-width: 400px;
-        }
-
-        .login-form h2 {
-            text-align: center;
-            margin-bottom: 30px;
-            color: #667eea;
-            font-size: 28px;
         }
 
         .form-group {
@@ -381,7 +286,6 @@ if ($user_logged_in) {
             text-align: center;
         }
 
-        /* Header */
         .header {
             background: white;
             padding: 20px;
@@ -424,7 +328,6 @@ if ($user_logged_in) {
             font-size: 14px;
         }
 
-        /* Navigation */
         .nav-tabs {
             background: white;
             border-radius: 15px;
@@ -457,7 +360,6 @@ if ($user_logged_in) {
             background: #f8f9fa;
         }
 
-        /* Content Sections */
         .content-section {
             display: none;
         }
@@ -466,7 +368,6 @@ if ($user_logged_in) {
             display: block;
         }
 
-        /* Clients Section */
         .clients-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -504,6 +405,7 @@ if ($user_logged_in) {
         .client-actions {
             display: flex;
             gap: 10px;
+            flex-wrap: wrap;
         }
 
         .btn-small {
@@ -525,7 +427,6 @@ if ($user_logged_in) {
             color: white;
         }
 
-        /* Kanban Board */
         .kanban-board {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -615,7 +516,6 @@ if ($user_logged_in) {
             color: #155724;
         }
 
-        /* Modal Styles */
         .modal {
             display: none;
             position: fixed;
@@ -628,6 +528,12 @@ if ($user_logged_in) {
             backdrop-filter: blur(5px);
         }
 
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
         .modal-content {
             background: white;
             margin: 5% auto;
@@ -638,6 +544,7 @@ if ($user_logged_in) {
             box-shadow: 0 20px 40px rgba(0,0,0,0.2);
             max-height: 90vh;
             overflow-y: auto;
+            position: relative;
         }
 
         .modal-header {
@@ -672,7 +579,6 @@ if ($user_logged_in) {
             flex: 1;
         }
 
-        /* Loading and states */
         .loading {
             text-align: center;
             padding: 20px;
@@ -683,182 +589,12 @@ if ($user_logged_in) {
             display: none !important;
         }
 
-        /* Notes Section */
-        .notes-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-
-        .note-card {
-            background: white;
-            padding: 20px;
-            border-radius: 15px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            transition: transform 0.3s;
-        }
-
-        .note-card:hover {
-            transform: translateY(-5px);
-        }
-
-        .note-title {
-            font-weight: 600;
-            margin-bottom: 10px;
-            color: #333;
-        }
-
-        .note-content {
-            color: #666;
-            margin-bottom: 15px;
-            line-height: 1.5;
-        }
-
-        .note-meta {
-            font-size: 12px;
-            color: #999;
-            margin-bottom: 15px;
-        }
-
-        /* Templates Section */
-        .templates-container {
-            margin-top: 20px;
-        }
-
-        .template-category {
-            margin-bottom: 30px;
-        }
-
-        .template-category h3 {
-            color: #667eea;
-            font-size: 20px;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #e1e5e9;
-        }
-
-        .template-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 15px;
-        }
-
-        .template-card {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-            transition: transform 0.3s;
-            border-left: 4px solid #667eea;
-        }
-
-        .template-card:hover {
-            transform: translateY(-3px);
-        }
-
-        .template-card h4 {
-            margin-bottom: 10px;
-            color: #333;
-        }
-
-        .template-description {
-            color: #666;
-            font-size: 14px;
-            margin-bottom: 15px;
-        }
-
-        .template-meta {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-
-        .template-priority {
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .template-actions {
-            display: flex;
-            gap: 10px;
-        }
-
-        /* Templates Selection Modal */
-        .templates-checkbox-container {
-            max-height: 400px;
-            overflow-y: auto;
-            border: 1px solid #e1e5e9;
-            border-radius: 8px;
-            padding: 15px;
-        }
-
-        .template-checkbox-group {
-            margin-bottom: 20px;
-        }
-
-        .template-checkbox-group h4 {
-            color: #667eea;
-            margin-bottom: 10px;
-            font-size: 16px;
-        }
-
-        .template-checkbox-item {
-            display: flex;
-            align-items: center;
-            padding: 8px 0;
-            border-bottom: 1px solid #f0f0f0;
-        }
-
-        .template-checkbox-item:last-child {
-            border-bottom: none;
-        }
-
-        .template-checkbox-item input[type="checkbox"] {
-            margin-right: 10px;
-            transform: scale(1.2);
-        }
-
-        .template-checkbox-label {
-            flex: 1;
-            cursor: pointer;
-        }
-
-        .template-checkbox-priority {
-            margin-left: 10px;
-            padding: 2px 6px;
-            border-radius: 8px;
-            font-size: 10px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .form-actions {
-            display: flex;
-            gap: 15px;
-            justify-content: center;
-        }
-
-        .btn-select-all {
-            background: #28a745;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 12px;
-            margin-bottom: 15px;
-        }
         @media (max-width: 768px) {
             .kanban-board {
                 grid-template-columns: 1fr;
             }
             
-            .clients-grid, .notes-grid {
+            .clients-grid {
                 grid-template-columns: 1fr;
             }
             
@@ -882,19 +618,32 @@ if ($user_logged_in) {
 <body>
     <!-- Login Screen -->
     <div id="loginScreen" class="login-container" <?php echo $user_logged_in ? 'style="display: none;"' : ''; ?>>
-        <form class="login-form" id="loginForm">
-            <h2>Marketing Kanban</h2>
-            <div class="form-group">
-                <label for="username">Usuario:</label>
-                <input type="text" id="username" name="username" required>
+        <div class="container-login">
+            <div class="form-container sign-in-container">
+                <form class="login-form" id="loginForm">
+                    <h1>Iniciar Sesión</h1>
+                    <div class="social-container">
+                        <a href="#" class="social">📊</a>
+                        <a href="#" class="social">📈</a>
+                        <a href="#" class="social">💼</a>
+                    </div>
+                    <span>o usa tu cuenta</span>
+                    <input type="text" id="username" name="username" placeholder="Usuario" required />
+                    <input type="password" id="password" name="password" placeholder="Contraseña" required />
+                    <button type="submit" id="loginBtn">Iniciar Sesión</button>
+                    <div id="loginMessage"></div>
+                </form>
             </div>
-            <div class="form-group">
-                <label for="password">Contraseña:</label>
-                <input type="password" id="password" name="password" required>
+            <div class="overlay-container">
+                <div class="overlay">
+                    <div class="overlay-panel overlay-right">
+                        <h1>¡Hola, Amigo!</h1>
+                        <p>Ingresa tus datos personales y comienza tu viaje con nosotros</p>
+                        <p>Sistema de Gestión de Marketing</p>
+                    </div>
+                </div>
             </div>
-            <button type="submit" class="btn" id="loginBtn">Iniciar Sesión</button>
-            <div id="loginMessage"></div>
-        </form>
+        </div>
     </div>
 
     <!-- Main Application -->
@@ -916,7 +665,6 @@ if ($user_logged_in) {
                 <div class="nav-tab active" onclick="showSection('dashboard')">Dashboard</div>
                 <div class="nav-tab" onclick="showSection('clients')">Clientes</div>
                 <div class="nav-tab" onclick="showSection('tasks')">Tareas</div>
-                <div class="nav-tab" onclick="showSection('templates')">Plantillas</div>
                 <div class="nav-tab" onclick="showSection('notes')">Notas</div>
             </div>
 
@@ -984,24 +732,13 @@ if ($user_logged_in) {
                 </div>
             </div>
 
-            <!-- Templates Section -->
-            <div id="templatesSection" class="content-section">
-                <div class="header">
-                    <h2>Plantillas de Tareas</h2>
-                    <button class="btn-primary" onclick="openTemplateModal()">Agregar Plantilla</button>
-                </div>
-                <div class="templates-container" id="templatesContainer">
-                    <div class="loading">Cargando plantillas...</div>
-                </div>
-            </div>
-
             <!-- Notes Section -->
             <div id="notesSection" class="content-section">
                 <div class="header">
                     <h2>Bloc de Notas</h2>
                     <button class="btn-primary" onclick="openNoteModal()">Agregar Nota</button>
                 </div>
-                <div class="notes-grid" id="notesGrid">
+                <div class="clients-grid" id="notesGrid">
                     <div class="loading">Cargando notas...</div>
                 </div>
             </div>
@@ -1051,6 +788,12 @@ if ($user_logged_in) {
             </div>
             <form id="taskForm">
                 <div class="form-group">
+                    <label for="taskType">Tipo de Tarea:</label>
+                    <select id="taskType" name="task_type" onchange="loadTaskTemplate()">
+                        <option value="">Cargando plantillas...</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label for="taskTitle">Título de la Tarea:</label>
                     <input type="text" id="taskTitle" name="title" required>
                 </div>
@@ -1095,63 +838,6 @@ if ($user_logged_in) {
         </div>
     </div>
 
-    <!-- Template Modal -->
-    <div id="templateModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="templateModalTitle">Agregar Plantilla</h3>
-                <span class="close" onclick="closeTemplateModal()">&times;</span>
-            </div>
-            <form id="templateForm">
-                <div class="form-group">
-                    <label for="templateTitle">Título de la Plantilla:</label>
-                    <input type="text" id="templateTitle" name="title" required>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="templateCategory">Categoría:</label>
-                        <input type="text" id="templateCategory" name="category" placeholder="ej: Pautas, Marketing, Análisis">
-                    </div>
-                    <div class="form-group">
-                        <label for="templatePriority">Prioridad:</label>
-                        <select id="templatePriority" name="priority" required>
-                            <option value="low">Baja</option>
-                            <option value="medium">Media</option>
-                            <option value="high">Alta</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label for="templateDescription">Descripción:</label>
-                    <textarea id="templateDescription" name="description" placeholder="Describe la plantilla de tarea..."></textarea>
-                </div>
-                <button type="submit" class="btn" id="templateSubmitBtn">Guardar Plantilla</button>
-                <div id="templateMessage"></div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Task Templates Selection Modal -->
-    <div id="taskTemplatesModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Seleccionar Plantillas para <span id="clientNameForTasks"></span></h3>
-                <span class="close" onclick="closeTaskTemplatesModal()">&times;</span>
-            </div>
-            <div class="templates-selection">
-                <p>Selecciona las tareas que quieres crear para este cliente:</p>
-                <div id="templatesCheckboxList" class="templates-checkbox-container">
-                    <div class="loading">Cargando plantillas...</div>
-                </div>
-                <div class="form-actions" style="margin-top: 20px;">
-                    <button type="button" class="btn" onclick="createTasksFromTemplates()">Crear Tareas Seleccionadas</button>
-                    <button type="button" class="btn-secondary" onclick="closeTaskTemplatesModal()">Cancelar</button>
-                </div>
-                <div id="taskTemplatesMessage"></div>
-            </div>
-        </div>
-    </div>
-
     <!-- Note Modal -->
     <div id="noteModal" class="modal">
         <div class="modal-content">
@@ -1186,25 +872,24 @@ if ($user_logged_in) {
         let clients = [];
         let tasks = [];
         let notes = [];
-        let templates = [];
+        let taskTemplates = [];
         let editingClientId = null;
         let editingTaskId = null;
         let editingNoteId = null;
-        let editingTemplateId = null;
-        let selectedClientForTasks = null;
 
         // Inicializar aplicación
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('Aplicación iniciada');
+            
             // Setup event listeners
             document.getElementById('loginForm').addEventListener('submit', handleLogin);
             document.getElementById('clientForm').addEventListener('submit', handleClientSubmit);
             document.getElementById('taskForm').addEventListener('submit', handleTaskSubmit);
             document.getElementById('noteForm').addEventListener('submit', handleNoteSubmit);
-            document.getElementById('templateForm').addEventListener('submit', handleTemplateSubmit);
             
             // Setup modal close on outside click
             window.onclick = function(event) {
-                const modals = ['clientModal', 'taskModal', 'noteModal', 'templateModal', 'taskTemplatesModal'];
+                const modals = ['clientModal', 'taskModal', 'noteModal'];
                 modals.forEach(modalId => {
                     const modal = document.getElementById(modalId);
                     if (event.target === modal) {
@@ -1213,9 +898,15 @@ if ($user_logged_in) {
                 });
             }
 
+            // Test buttons functionality
+            console.log('Botones configurados correctamente');
+
             // Si hay usuario logueado, cargar datos
             if (currentUser) {
+                console.log('Usuario logueado, cargando datos...');
                 loadInitialData();
+            } else {
+                console.log('No hay usuario logueado');
             }
         });
 
@@ -1236,7 +927,7 @@ if ($user_logged_in) {
             if (loading) {
                 button.textContent = 'Cargando...';
             } else {
-                // Restaurar texto original basado en el ID
+                // Restaurar texto original
                 if (buttonId === 'loginBtn') button.textContent = 'Iniciar Sesión';
                 else if (buttonId === 'clientSubmitBtn') button.textContent = editingClientId ? 'Actualizar Cliente' : 'Guardar Cliente';
                 else if (buttonId === 'taskSubmitBtn') button.textContent = editingTaskId ? 'Actualizar Tarea' : 'Guardar Tarea';
@@ -1245,20 +936,27 @@ if ($user_logged_in) {
         }
 
         function closeModal(modalId) {
-            document.getElementById(modalId).style.display = 'none';
+            const modal = document.getElementById(modalId);
+            modal.style.display = 'none';
+            
             // Reset forms
             if (modalId === 'clientModal') {
                 document.getElementById('clientForm').reset();
                 editingClientId = null;
                 document.getElementById('clientModalTitle').textContent = 'Agregar Cliente';
+                document.getElementById('clientMessage').innerHTML = '';
             } else if (modalId === 'taskModal') {
                 document.getElementById('taskForm').reset();
                 editingTaskId = null;
                 document.getElementById('taskModalTitle').textContent = 'Agregar Tarea';
+                document.getElementById('taskMessage').innerHTML = '';
+                // Resetear selector de tipo de tarea
+                updateTaskTypeSelect();
             } else if (modalId === 'noteModal') {
                 document.getElementById('noteForm').reset();
                 editingNoteId = null;
                 document.getElementById('noteModalTitle').textContent = 'Agregar Nota';
+                document.getElementById('noteMessage').innerHTML = '';
             }
         }
 
@@ -1339,8 +1037,6 @@ if ($user_logged_in) {
                 loadTasks();
             } else if (sectionName === 'notes') {
                 loadNotes();
-            } else if (sectionName === 'templates') {
-                loadTemplates();
             } else if (sectionName === 'dashboard') {
                 updateKanbanBoard();
             }
@@ -1352,9 +1048,97 @@ if ($user_logged_in) {
                 loadClients(),
                 loadTasks(),
                 loadNotes(),
-                loadTemplates()
+                loadTaskTemplates()
             ]);
             updateKanbanBoard();
+        }
+
+        // Cargar plantillas de tareas
+        async function loadTaskTemplates() {
+            try {
+                const response = await fetch('task_templates.php');
+                const result = await response.json();
+
+                if (result.success) {
+                    taskTemplates = result.templates;
+                    updateTaskTypeSelect();
+                } else {
+                    console.error('Error al cargar plantillas:', result.message);
+                }
+            } catch (error) {
+                console.error('Error al cargar plantillas:', error);
+            }
+        }
+
+        // Actualizar selector de tipo de tarea
+        function updateTaskTypeSelect() {
+            const select = document.getElementById('taskType');
+            select.innerHTML = '<option value="">Seleccionar tipo de tarea...</option>';
+            
+            if (taskTemplates.length === 0) {
+                select.innerHTML += '<option value="" disabled>No hay plantillas disponibles</option>';
+                return;
+            }
+
+            // Agrupar por categoría
+            const grouped = {};
+            taskTemplates.forEach(template => {
+                const category = template.category || 'General';
+                if (!grouped[category]) {
+                    grouped[category] = [];
+                }
+                grouped[category].push(template);
+            });
+
+            // Agregar opción personalizada
+            select.innerHTML += '<option value="custom">Tarea personalizada</option>';
+
+            // Agregar plantillas por categoría
+            Object.keys(grouped).sort().forEach(category => {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = category;
+                
+                grouped[category].forEach(template => {
+                    const option = document.createElement('option');
+                    option.value = template.id;
+                    option.textContent = template.title;
+                    optgroup.appendChild(option);
+                });
+                
+                select.appendChild(optgroup);
+            });
+        }
+
+        // Cargar plantilla seleccionada
+        function loadTaskTemplate() {
+            const select = document.getElementById('taskType');
+            const templateId = select.value;
+            
+            if (!templateId || templateId === 'custom') {
+                // Limpiar campos para tarea personalizada
+                document.getElementById('taskTitle').value = '';
+                document.getElementById('taskDescription').value = '';
+                document.getElementById('taskPriority').value = 'medium';
+                return;
+            }
+            
+            // Buscar plantilla
+            const template = taskTemplates.find(t => t.id == templateId);
+            if (template) {
+                // Auto-completar campos
+                document.getElementById('taskTitle').value = template.title;
+                document.getElementById('taskDescription').value = template.description || '';
+                document.getElementById('taskPriority').value = template.priority;
+            }
+        }
+
+        function getPriorityText(priority) {
+            switch(priority) {
+                case 'high': return 'Alta';
+                case 'medium': return 'Media';
+                case 'low': return 'Baja';
+                default: return 'Media';
+            }
         }
 
         // Gestión de Clientes
@@ -1398,7 +1182,6 @@ if ($user_logged_in) {
                     </div>
                     <div class="client-actions">
                         <button class="btn-small btn-edit" onclick="editClient(${client.id})">Editar</button>
-                        <button class="btn-small" style="background: #17a2b8; color: white;" onclick="openTaskTemplatesForClient(${client.id}, '${client.name}')">Crear Tareas</button>
                         <button class="btn-small btn-delete" onclick="deleteClient(${client.id})">Eliminar</button>
                     </div>
                 `;
@@ -1407,7 +1190,6 @@ if ($user_logged_in) {
         }
 
         function openClientModal() {
-            updateTaskClientSelect();
             document.getElementById('clientModal').style.display = 'block';
         }
 
@@ -1546,17 +1328,9 @@ if ($user_logged_in) {
             return taskCard;
         }
 
-        function getPriorityText(priority) {
-            switch(priority) {
-                case 'high': return 'ALTA';
-                case 'medium': return 'MEDIA';
-                case 'low': return 'BAJA';
-                default: return 'MEDIA';
-            }
-        }
-
         function openTaskModal() {
             updateTaskClientSelect();
+            updateTaskTypeSelect();
             document.getElementById('taskModal').style.display = 'block';
         }
 
@@ -1613,6 +1387,7 @@ if ($user_logged_in) {
 
             editingTaskId = taskId;
             document.getElementById('taskModalTitle').textContent = 'Editar Tarea';
+            document.getElementById('taskType').value = 'custom';
             document.getElementById('taskTitle').value = task.title;
             document.getElementById('taskClient').value = task.client_id;
             document.getElementById('taskPriority').value = task.priority;
@@ -1685,13 +1460,12 @@ if ($user_logged_in) {
             
             notes.forEach(note => {
                 const noteCard = document.createElement('div');
-                noteCard.className = 'note-card';
+                noteCard.className = 'client-card';
                 noteCard.innerHTML = `
-                    <div class="note-title">${note.title}</div>
-                    <div class="note-content">${note.content}</div>
-                    <div class="note-meta">
-                        ${note.task_title ? `Tarea: ${note.task_title}` : 'Nota general'} - 
-                        ${new Date(note.created_at).toLocaleDateString()}
+                    <h3>${note.title}</h3>
+                    <div class="client-info">
+                        <p>${note.content}</p>
+                        <p><small>${note.task_title ? `Tarea: ${note.task_title}` : 'Nota general'} - ${new Date(note.created_at).toLocaleDateString()}</small></p>
                     </div>
                     <div class="client-actions">
                         <button class="btn-small btn-edit" onclick="editNote(${note.id})">Editar</button>
